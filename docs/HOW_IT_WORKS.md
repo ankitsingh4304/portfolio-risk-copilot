@@ -153,7 +153,7 @@ Each tool is a normal Python function with type hints and a docstring. LangChain
 - **The LLM never does math.** The system prompt forbids it. All numbers come from tools.
 - **Tools are created per request** with the logged-in user's ID inside them. The agent can't see anyone else's data, even if a user asks it to.
 - **Tool errors don't crash the chat.** "You don't hold any Steel stocks" goes back to the LLM, which explains it to the user.
-- **Fallback.** If Gemini is down or there's no key, a rule-based version answers using the same tools.
+- **Backup model, then fallback.** The app tries the main model (`LLM_PROVIDER`), then the other one if its key is set: Gemini → Groq (`openai/gpt-oss-120b`), or the reverse. Only if both fail does a rule-based version answer, using the same tools. The chat shows which one answered ("answered by Groq").
 - **No buy/sell advice.** The prompt tells the agent to explain risk, not recommend trades.
 
 ### Measuring it (`eval/agent_eval.py`)
@@ -175,6 +175,9 @@ Building it from nodes and edges shows exactly how the loop works and makes it e
 
 **Q: How do you know the agent isn't making numbers up?**
 Two ways. By design: the tools return the numbers and the prompt forbids calculating. By measurement: the groundedness check in the evaluation flags any ₹ or % in an answer that isn't in a tool result.
+
+**Q: Why two AI providers?**
+Free AI APIs fail in ordinary ways: the model is busy, the daily quota runs out, or the model gets retired. That last one really happened while I built this: Google stopped offering `gemini-2.5-flash` to new keys, and every answer quietly fell back to basic mode. With a backup from a different company, one provider's problem doesn't break the Ask page. Because the tools are the same for both, the agent code doesn't change. Only the model object does. The evaluation can run on each provider (`LLM_PROVIDER=groq python -m eval.agent_eval`), so the two can be compared on the same questions.
 
 **Q: How would you improve the agent?**
 Move the groundedness check into the graph itself: a "verify" node after the agent that rejects an answer with an ungrounded number and asks the model to retry. Use a cheaper model for simple questions and a stronger one for multi-step ones, and compare cost per correct answer.

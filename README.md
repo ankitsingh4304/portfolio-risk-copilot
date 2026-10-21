@@ -2,7 +2,7 @@
 
 **An AI risk analyst for Indian stock portfolios.** Upload holdings from Zerodha or Groww (CSV, Excel or PDF statement). See how risky the portfolio is in plain words, stress-test it against sector shocks and real past crashes, forecast next month with Monte Carlo, and ask a LangGraph agent questions that are answered from your real numbers.
 
-**Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · Pandas · NumPy · LangGraph · Gemini · React · Recharts · Docker · GitHub Actions
+**Stack:** Python · FastAPI · PostgreSQL · SQLAlchemy · Alembic · Pandas · NumPy · LangGraph · Gemini · Groq · React · Recharts · Docker · GitHub Actions
 
 ![Overview page](docs/screenshots/overview.png)
 <sub>Screenshot uses the app's built-in demo prices.</sub>
@@ -14,10 +14,10 @@
 - **Risk engine** in Pandas/NumPy: volatility, max drawdown, historical VaR and expected shortfall, beta, Sharpe, correlation, concentration (HHI), and **Euler risk contributions** (which stock causes how much of the risk). Every formula is unit-tested against hand-worked answers.
 - **Time-series and probability models:** **EWMA volatility** (the RiskMetrics method) as a "risk is rising" signal, a **10,000-path Monte Carlo** month-ahead forecast (filtered historical simulation), and a **Kupiec backtest** that checks whether the VaR number actually held up on past data.
 - **Stress testing:** sector shocks with knock-on effects estimated by beta, market shocks, custom moves, and replays of the 2020 COVID crash, the 2022 rate-hike selloff and the 4 June 2024 election-day fall on today's holdings.
-- **AI agent that never does its own maths:** a LangGraph tool-calling loop with 10 tools. Gemini picks the tool and explains the result; every number comes from tested code.
+- **AI agent that never does its own maths:** a LangGraph tool-calling loop with 10 tools. Gemini picks the tool and explains the result; every number comes from tested code. If Gemini fails (busy, quota, retired model), **Groq** answers with the same tools; rule-based answers only if both fail.
 - **Agent evaluation harness:** 30 questions (16 dev + 14 held-out) scored on tool choice, numeric accuracy, **groundedness** (is every ₹ and % in the answer copied from a tool result?), no-advice behaviour, latency and token cost.
 - **Document extraction:** reads PDF statements (ruled and unruled tables). For PDFs with no table, Gemini returns **structured JSON validated by Pydantic**, and every quantity and price it reads must appear in the PDF text, or the row is rejected.
-- **Production basics:** JWT auth with **role-based access**, per-user data isolation, Alembic migrations (schema + data), daily alerts to Telegram, an Excel risk report, Docker, and CI that runs **99 tests on SQLite and PostgreSQL 16**.
+- **Production basics:** JWT auth with **role-based access**, per-user data isolation, Alembic migrations (schema + data), daily alerts to Telegram, an Excel risk report, Docker, and CI that runs **102 tests on SQLite and PostgreSQL 16**.
 
 ## What the user sees
 
@@ -44,7 +44,7 @@ FastAPI ─────────── PostgreSQL  (users, holdings, cached p
   ├── Risk engine ───────── volatility, drawdown, VaR/CVaR, beta, risk contributions
   ├── Quant models ──────── EWMA volatility, Monte Carlo (10k paths), Kupiec VaR backtest
   ├── Scenario engine ───── sector / market / custom / historical replay
-  ├── LangGraph agent ───── Gemini + 10 tools (the tools call the engines above)
+  ├── LangGraph agent ───── Gemini (Groq as backup) + 10 tools (the tools call the engines above)
   ├── Excel report ──────── 6 sheets via pandas + openpyxl
   └── Daily job ─────────── alerts → Google News RSS + Telegram bot
 ```
@@ -57,7 +57,8 @@ FastAPI ─────────── PostgreSQL  (users, holdings, cached p
 
 ```bash
 cd backend
-python -m eval.agent_eval                        # your Gemini agent (needs GOOGLE_API_KEY)
+python -m eval.agent_eval                        # your main AI (LLM_PROVIDER in .env)
+LLM_PROVIDER=groq python -m eval.agent_eval      # same questions on Groq, to compare
 LLM_PROVIDER=offline python -m eval.agent_eval   # rule-based baseline
 ```
 
@@ -66,6 +67,7 @@ LLM_PROVIDER=offline python -m eval.agent_eval   # rule-based baseline
 | Rule-based baseline | dev (16) | 100% | 100% | 100% | – |
 | Rule-based baseline | **held-out (14)** | **50%** | **36%** | 100% | 100% |
 | Gemini agent | held-out (14) | *run it and fill in* | | | |
+| Groq agent (gpt-oss-120b) | held-out (14) | *run it and fill in* | | | |
 
 The baseline was written around the dev questions, so its dev score means nothing. The held-out set uses new wordings ("dropped by a fifth") and multi-step questions ("compare a 10% Nifty fall with the 2020 crash"). That's the fair comparison. Per-question answers, latency and token counts are saved to `backend/eval/results.json`.
 
@@ -106,7 +108,9 @@ Open http://localhost:5173, create an account, and upload a file from `sample_da
 
 Get a key at https://aistudio.google.com/apikey. In `backend/.env` set `LLM_PROVIDER=gemini` and `GOOGLE_API_KEY=...`, then restart. Without a key, the Ask page runs in basic mode, and PDFs without tables can't be read.
 
-> Model names change often. If Gemini says the model isn't found, check https://ai.google.dev/gemini-api/docs/models and update `GEMINI_MODEL`.
+**Backup AI (recommended):** also add a free Groq key from https://console.groq.com/keys as `GROQ_API_KEY=...`. If Gemini fails, Groq answers instead. Or use Groq as the main AI with `LLM_PROVIDER=groq`.
+
+> Model names change often. If you get "model not found", update `GEMINI_MODEL` (see https://ai.google.dev/gemini-api/docs/models) or `GROQ_MODEL` (see https://console.groq.com/docs/models).
 
 ### 4. Use NSE's full official stock list (recommended)
 
@@ -135,7 +139,7 @@ docker compose up --build      # then open http://localhost:8080
 
 ```bash
 cd backend
-python -m pytest -q                                    # 99 tests, SQLite
+python -m pytest -q                                    # 102 tests, SQLite
 TEST_DATABASE_URL=postgresql://user:pass@localhost:5432/empty_db python -m pytest -q   # same on Postgres
 ```
 

@@ -37,10 +37,13 @@ class Settings(BaseSettings):
     lookback_days: int = 252  # 1 trading year for risk metrics
 
     # --- AI agent ---
-    # "gemini" uses Google's Gemini. "offline" uses a rule-based fallback (no key needed).
+    # Main AI: "gemini" or "groq". "offline" uses a rule-based fallback (no key needed).
+    # If both keys are set, the other one is the backup: it answers when the main one fails.
     llm_provider: str = "offline"
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
+    gemini_model: str = "gemini-3.5-flash"
+    groq_api_key: str = ""
+    groq_model: str = "openai/gpt-oss-120b"
 
     # --- Alerts ---
     enable_scheduler: bool = False

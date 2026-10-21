@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from .agent.graph import ai_order
 from .config import DEFAULT_JWT_SECRET, get_settings
 from .database import check_db, init_db
 from .routers import admin, alerts, auth, chat, cron, portfolio, scenarios
@@ -26,8 +27,8 @@ def check_settings():
         )
     if weak_secret:
         log.warning("JWT_SECRET is the default/short value. Fine for local testing, never for deployment.")
-    if settings.llm_provider == "gemini" and not settings.google_api_key:
-        log.warning("LLM_PROVIDER=gemini but GOOGLE_API_KEY is empty. The Ask page will use basic mode.")
+    if settings.llm_provider != "offline" and not ai_order():
+        log.warning("LLM_PROVIDER=%s but no AI key is set. The Ask page will use basic mode.", settings.llm_provider)
 
 
 @asynccontextmanager
@@ -65,7 +66,8 @@ def health():
         "status": "ok" if db_ok else "error",
         "database": "ok" if db_ok else "unreachable",
         "price_source": settings.price_source,
-        "llm_provider": "gemini" if settings.llm_provider == "gemini" and settings.google_api_key else "offline",
+        "llm_provider": (ai_order() or ["offline"])[0],  # the main AI
+        "llm_backup": (ai_order()[1:] or [None])[0],      # used if the main one fails
         "scheduler": settings.enable_scheduler,
     }
     return JSONResponse(body, status_code=200 if db_ok else 503)

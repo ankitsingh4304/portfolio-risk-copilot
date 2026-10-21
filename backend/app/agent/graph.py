@@ -56,14 +56,44 @@ def build_graph(llm, tools):
     return graph.compile()
 
 
-def get_llm():
-    if settings.llm_provider == "gemini" and settings.google_api_key:
+def _make_llm(provider: str):
+    """Build one AI model, or None if its key isn't set."""
+    if provider == "gemini" and settings.google_api_key:
         from langchain_google_genai import ChatGoogleGenerativeAI
 
+        # Gemini 3 and newer use Google's fixed sampling settings and can reject a custom
+        # temperature, so only older models get one.
+        extra = {} if settings.gemini_model.startswith("gemini-3") else {"temperature": 0.2}
         return ChatGoogleGenerativeAI(
-            model=settings.gemini_model, google_api_key=settings.google_api_key, temperature=0.2
+            model=settings.gemini_model, google_api_key=settings.google_api_key, max_retries=2, **extra
         )
+    if provider == "groq" and settings.groq_api_key:
+        from langchain_groq import ChatGroq
+
+        return ChatGroq(model=settings.groq_model, api_key=settings.groq_api_key, temperature=0.2, max_retries=2)
     return None
+
+
+def ai_order() -> list[str]:
+    """Names of the AI models to try, in order: the main one (LLM_PROVIDER), then the other as backup.
+
+    Example: LLM_PROVIDER=gemini with both keys set -> ["gemini", "groq"].
+    LLM_PROVIDER=offline -> [] (no AI at all, even if keys are set).
+    """
+    order = {"gemini": ["gemini", "groq"], "groq": ["groq", "gemini"]}.get(settings.llm_provider, [])
+    keys = {"gemini": settings.google_api_key, "groq": settings.groq_api_key}
+    return [name for name in order if keys[name]]
+
+
+def get_llms() -> list[tuple[str, object]]:
+    """The AI models to try, in order, as (name, model) pairs."""
+    return [(name, _make_llm(name)) for name in ai_order()]
+
+
+def get_llm():
+    """The first available model (used by the PDF reader)."""
+    llms = get_llms()
+    return llms[0][1] if llms else None
 
 
 def _text(msg) -> str:
@@ -74,12 +104,17 @@ def _text(msg) -> str:
     return str(c)
 
 
-def run_agent(db: Session, user: User, message: str, history: list[dict], llm=None) -> dict:
-    """Answer one chat message. `llm` can be passed in (tests use a fake one)."""
+def run_agent(db: Session, user: User, message: str, history: list[dict], llm=None, models=None) -> dict:
+    """Answer one chat message.
+
+    Tries each AI model in order (main, then backup). If all of them fail, falls back to
+    the rule-based answer. Tests pass a fake `llm`, or a list of (name, model) as `models`.
+    """
     ctx = ToolContext(db, user)
     tools = build_tools(ctx)
-    llm = llm or get_llm()
-    if llm is None:
+    if models is None:
+        models = [("llm", llm)] if llm is not None else get_llms()
+    if not models:
         return offline.answer(message, tools)
 
     msgs = []
@@ -87,10 +122,15 @@ def run_agent(db: Session, user: User, message: str, history: list[dict], llm=No
         msgs.append(HumanMessage(m["content"]) if m["role"] == "user" else AIMessage(m["content"]))
     msgs.append(HumanMessage(message))
 
-    try:
-        result = build_graph(llm, tools).invoke({"messages": msgs}, config={"recursion_limit": MAX_STEPS})
-    except Exception as exc:  # noqa: BLE001  API down, quota hit, too many steps...
-        log.warning("Agent failed, using offline mode: %s", exc)
+    result = None
+    for name, model in models:
+        try:
+            result = build_graph(model, tools).invoke({"messages": msgs}, config={"recursion_limit": MAX_STEPS})
+            break
+        except Exception as exc:  # noqa: BLE001  API down, quota hit, model retired, too many steps...
+            log.warning("AI model '%s' failed: %s", name, exc)
+    if result is None:
+        log.warning("All AI models failed, using offline mode.")
         out = offline.answer(message, tools)
         out["answer"] = "(The AI model is unavailable right now, so here's a basic answer.)\n\n" + out["answer"]
         return out
@@ -113,5 +153,5 @@ def run_agent(db: Session, user: User, message: str, history: list[dict], llm=No
         "tool_calls": tool_calls,
         "tool_results": [_text(m) for m in new_msgs if isinstance(m, ToolMessage)],
         "usage": usage,
-        "mode": "gemini" if settings.llm_provider == "gemini" else "llm",
+        "mode": name,  # which model answered: "gemini", "groq" (or "llm" in tests)
     }

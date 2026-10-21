@@ -24,6 +24,9 @@ const TOOL_NAMES = {
   get_stock_news: "news",
 };
 
+// Which AI model wrote the answer (the backend tries the main one, then the backup).
+const MODEL_NAMES = { gemini: "Gemini", groq: "Groq" };
+
 /** Turns **bold** into <strong>, keeps everything else as plain text. */
 function Rich({ text }) {
   return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
@@ -90,7 +93,8 @@ export default function Chat() {
                       {TOOL_NAMES[t] ?? t}
                     </span>
                   ))}
-                  {m.mode === "offline" && <span>· basic mode (no AI key set)</span>}
+                  {m.mode === "offline" && <span>· basic mode (AI not available)</span>}
+                  {MODEL_NAMES[m.mode] && <span>· answered by {MODEL_NAMES[m.mode]}</span>}
                 </div>
               )}
             </div>

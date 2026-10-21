@@ -85,3 +85,48 @@ def test_indian_number_format():
     assert _inr(1234567) == "₹12,34,567"
     assert _inr(999) == "₹999"
     assert _inr(-100000) == "-₹1,00,000"
+
+
+class BrokenLLM(ScriptedLLM):
+    """Always fails, like a retired model or an exhausted free quota."""
+
+    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
+        raise RuntimeError("404 model not found")
+
+
+def test_backup_model_answers_when_main_fails(client, user_with_portfolio):
+    _, user = user_with_portfolio
+    db, u = _db_user(user["email"])
+    backup = ScriptedLLM(script=[
+        AIMessage("", tool_calls=[{"name": "get_risk_metrics", "args": {}, "id": "c1"}]),
+        AIMessage("Your portfolio is moderately risky."),
+    ])
+    out = run_agent(db, u, "How risky am I?", [], models=[("gemini", BrokenLLM(script=[])), ("groq", backup)])
+    assert out["mode"] == "groq"
+    assert out["answer"] == "Your portfolio is moderately risky."
+    assert [c["tool"] for c in out["tool_calls"]] == ["get_risk_metrics"]
+    db.close()
+
+
+def test_basic_mode_only_when_every_model_fails(client, user_with_portfolio):
+    _, user = user_with_portfolio
+    db, u = _db_user(user["email"])
+    out = run_agent(db, u, "How risky is my portfolio?", [],
+                    models=[("gemini", BrokenLLM(script=[])), ("groq", BrokenLLM(script=[]))])
+    assert out["mode"] == "offline"
+    assert out["answer"].startswith("(The AI model is unavailable right now")
+    db.close()
+
+
+def test_model_order_follows_llm_provider(monkeypatch):
+    from app.agent import graph
+    from app.config import Settings
+
+    both = {"google_api_key": "g", "groq_api_key": "q"}
+    for provider, expected in [("gemini", ["gemini", "groq"]), ("groq", ["groq", "gemini"]), ("offline", [])]:
+        monkeypatch.setattr(graph, "settings", Settings(llm_provider=provider, **both))
+        assert graph.ai_order() == expected
+    # A model without a key is skipped. (Set the empty key explicitly, or Settings would
+    # read the real GOOGLE_API_KEY from your .env file.)
+    monkeypatch.setattr(graph, "settings", Settings(llm_provider="gemini", google_api_key="", groq_api_key="q"))
+    assert graph.ai_order() == ["groq"]

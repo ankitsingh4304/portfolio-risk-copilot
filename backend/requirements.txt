@@ -26,6 +26,7 @@ yfinance==1.7.0
 langgraph==1.2.16
 langchain-core==1.6.12
 langchain-google-genai==4.4.2
+langchain-groq==1.1.3
 
 # News, alerts, scheduling
 feedparser==6.0.14

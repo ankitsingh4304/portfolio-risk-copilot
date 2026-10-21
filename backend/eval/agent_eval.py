@@ -17,8 +17,10 @@ Two question sets (eval/questions.json):
 
 Run from the backend folder:
     python -m eval.agent_eval                       # uses LLM_PROVIDER from your .env
+    LLM_PROVIDER=groq python -m eval.agent_eval     # same questions on Groq, to compare models
     LLM_PROVIDER=offline python -m eval.agent_eval  # rule-based baseline, for comparison
     (Windows PowerShell:  $env:LLM_PROVIDER="offline"; python -m eval.agent_eval)
+The "Mode" line shows which model answered each question (the backup counts separately).
 
 Optional cost estimate: set EVAL_PRICE_IN and EVAL_PRICE_OUT to your model's price in US$
 per 1 million input / output tokens.
@@ -32,6 +34,7 @@ import re
 import sys
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
 os.environ.setdefault("PRICE_SOURCE", "demo")
@@ -193,10 +196,13 @@ def main():
         note = (" ungrounded: " + ", ".join(bad)) if bad else ""
         print(f"[{'PASS' if ok else 'FAIL'}] {case['id']} {case['question'][:58]:58s} tools={called}{note} ({latency:.1f}s)")
         rows.append(row)
-        if settings.llm_provider == "gemini":
+        if out["mode"] != "offline":
             time.sleep(float(os.environ.get("EVAL_SLEEP", "6")))  # stay under free-tier rate limits
 
-    summary = {"mode": rows[0]["mode"] if rows else None}
+    # Which model answered, and how often. Example: "gemini x29, groq x1" means the backup
+    # answered once. "offline" in an AI run means every model failed on that question.
+    modes = Counter(r["mode"] for r in rows)
+    summary = {"mode": ", ".join(f"{m} x{n}" for m, n in modes.most_common())}
     for name in ("dev", "holdout"):
         summary[name] = summarise([r for r in rows if r["set"] == name])
     summary["all"] = summarise(rows)

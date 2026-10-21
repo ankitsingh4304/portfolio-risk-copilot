@@ -173,13 +173,21 @@ def parse_pdf(content: bytes, llm=None) -> ParseResult:
 
     if not text.strip():
         raise ParseError("This PDF has no readable text. It's probably a scanned image. Upload the CSV or Excel export instead.")
-    if llm is None:
-        from ..agent.graph import get_llm
+    if llm is not None:
+        return extract_with_ai(text, llm)
 
-        llm = get_llm()
-    if llm is None:
+    from ..agent.graph import get_llms
+
+    models = get_llms()  # main AI first, then the backup
+    if not models:
         raise ParseError(
-            "Couldn't find a holdings table in this PDF. Turn on the AI (GOOGLE_API_KEY) to read PDFs "
-            "without tables, or upload the CSV/Excel export instead."
+            "Couldn't find a holdings table in this PDF. Turn on the AI (GOOGLE_API_KEY or GROQ_API_KEY) "
+            "to read PDFs without tables, or upload the CSV/Excel export instead."
         )
-    return extract_with_ai(text, llm)
+    error = None
+    for _, model in models:
+        try:
+            return extract_with_ai(text, model)
+        except ParseError as exc:  # this model failed; try the backup
+            error = exc
+    raise error

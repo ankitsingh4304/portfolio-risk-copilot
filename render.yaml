@@ -19,6 +19,8 @@ services:
         sync: false
       - key: GOOGLE_API_KEY    # free key from https://aistudio.google.com/apikey
         sync: false
+      - key: GROQ_API_KEY      # backup AI, free key from https://console.groq.com/keys
+        sync: false
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: JWT_SECRET        # Render makes a random one for you
