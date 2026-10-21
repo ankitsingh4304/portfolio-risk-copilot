@@ -1,0 +1,33 @@
+# Render Blueprint: creates the backend web service in one click.
+# Render dashboard -> New -> Blueprint -> pick this repo.
+# The database is NOT created here (Render's free Postgres is deleted after 30 days).
+# Use Neon instead and paste its connection string as DATABASE_URL. See docs/DEPLOY.md.
+services:
+  - type: web
+    runtime: docker
+    name: risk-copilot-api
+    plan: free
+    region: singapore          # closest to India. Pick the same region for your Neon database.
+    rootDir: backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: DATABASE_URL      # from Neon (you paste it when creating the Blueprint)
+        sync: false
+      - key: CORS_ORIGINS      # your Vercel URL, e.g. https://risk-copilot.vercel.app
+        sync: false
+      - key: ADMIN_EMAILS      # your email, to see usage stats
+        sync: false
+      - key: GOOGLE_API_KEY    # free key from https://aistudio.google.com/apikey
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: JWT_SECRET        # Render makes a random one for you
+        generateValue: true
+      - key: CRON_SECRET       # Render makes one; copy it into GitHub secrets (see docs/DEPLOY.md)
+        generateValue: true
+      - key: LLM_PROVIDER
+        value: gemini
+      - key: PRICE_SOURCE
+        value: yfinance
+      - key: ENABLE_SCHEDULER  # off: the free plan sleeps, so GitHub Actions triggers alerts instead
+        value: "false"

@@ -1,0 +1,41 @@
+# Runs the whole app: Postgres + FastAPI + React (nginx).
+#   docker compose up --build
+# Then open http://localhost:8080
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: copilot
+      POSTGRES_PASSWORD: copilot
+      POSTGRES_DB: copilot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U copilot"]
+      interval: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg2://copilot:copilot@db:5432/copilot
+      CORS_ORIGINS: http://localhost:8080
+      ENABLE_SCHEDULER: "true"
+      # For local use only. On a real server, set your own long random JWT_SECRET.
+      JWT_SECRET: ${JWT_SECRET:-local-docker-only-secret-do-not-use-in-production}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+
+volumes:
+  pgdata:
