@@ -65,6 +65,7 @@ class UploadOut(BaseModel):
     detected_format: str
     imported: int
     warnings: list[str]
+    columns_used: dict[str, str] = {}  # e.g. {"Quantity": "Net Qty"}, so the user can check the pick
     holdings: list[HoldingOut]
 
 

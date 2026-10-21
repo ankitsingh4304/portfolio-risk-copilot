@@ -77,7 +77,7 @@ async def upload(
         raise HTTPException(status.HTTP_409_CONFLICT, "Another upload was saving at the same time. Please try again.")
     holdings = db.scalars(select(Holding).where(Holding.user_id == user.id).order_by(Holding.symbol)).all()
     return UploadOut(detected_format=parsed.detected_format, imported=len(parsed.holdings),
-                     warnings=parsed.warnings, holdings=holdings)
+                     warnings=parsed.warnings, columns_used=parsed.columns_used, holdings=holdings)
 
 
 @router.post("/holdings", response_model=HoldingOut, status_code=201)

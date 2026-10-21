@@ -36,11 +36,13 @@ def normalize_name(name: str) -> str:
 
 
 @lru_cache
-def _load() -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]:
-    """Returns (symbol -> (name, sector), normalized name -> symbol, symbol -> file it came from)."""
+def _load() -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str], dict[str, str]]:
+    """Returns (symbol -> (name, sector), normalized name -> symbol, symbol -> file it came from,
+    ISIN -> symbol)."""
     stocks: dict[str, tuple[str, str]] = {}
     names: dict[str, str] = {}
     source: dict[str, str] = {}
+    isins: dict[str, str] = {}
     for filename in FILES_IN_PRIORITY_ORDER:
         path = DATA_DIR / filename
         if not path.exists():
@@ -58,8 +60,11 @@ def _load() -> tuple[dict[str, tuple[str, str]], dict[str, str], dict[str, str]]
                 for n in [name, *(row.get("Aliases") or "").split(";")]:
                     if n.strip():
                         names.setdefault(normalize_name(n), sym)
+                isin = (row.get("ISIN Code") or "").strip().upper()
+                if isin:
+                    isins.setdefault(isin, sym)
     log.info("Loaded %d stocks (%s)", len(stocks), ", ".join(sorted(set(source.values()))))
-    return stocks, names, source
+    return stocks, names, source, isins
 
 
 def reload() -> None:
@@ -78,6 +83,12 @@ def has_official_list() -> bool:
 def lookup(symbol: str) -> tuple[str, str] | None:
     """Return (name, sector) for a known symbol, else None."""
     return _load()[0].get(symbol.upper())
+
+
+def symbol_from_isin(isin: str) -> str | None:
+    """ISIN is the unique ID every Indian share has, e.g. INE002A01018 = RELIANCE.
+    Needs the official Nifty 500 file (the starter list has no ISINs)."""
+    return _load()[3].get(str(isin).strip().upper())
 
 
 def symbol_from_name(name: str) -> str | None:

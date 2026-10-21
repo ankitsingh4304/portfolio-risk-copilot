@@ -85,3 +85,58 @@ def test_excel_file():
     pd.DataFrame({"Symbol": ["INFY", "TCS"], "Quantity": [3, 4], "Average Price": [1500, 3000]}).to_excel(buf, index=False)
     h = by_symbol(parse_holdings_file(buf.getvalue(), "holdings.xlsx"))
     assert h["TCS"].quantity == 4 and h["INFY"].avg_price == 1500
+
+
+def _arihant_xlsx() -> bytes:
+    """An Arihant back-office holdings report (made-up client and numbers), as Excel."""
+    import io
+
+    import pandas as pd
+
+    head = ["Client Code", "Client Name", "Scrip Code", "ISIN", "Security Name", "Holding", "Colletral",
+            "DP Holding", "Total Holding", "Close Rate", "VAR %", "Category", "Margin Pledge Value",
+            "Holding Value", "Value After VAR", "Buy Avg", "Notional PNL", "Investment Value"]
+    blank = [None] * len(head)
+    rows = [
+        ["ARIHANT CAPITAL MARKETS LIMITED"] + blank[1:],
+        ["Client Holding ason 01/10/2026"] + blank[1:],
+        blank, blank,
+        head,
+        ["X1", "TEST USER", "500325", "INE002A01018", "RELIANCE", 0, 0, 3, 3, 1200, 9, None, 0, 3600, 3276, 1100, 300, 3300],
+        ["X1", "TEST USER", "500209", "INE009A01021", "INFY", 0, 0, 10, 10, 1500, 9, None, 0, 15000, 13650, 1400.5, 995, 14005],
+        ["X1", "TEST USER", "999999", "INE000X01010", "NEWLISTCO", 0, 0, 7, 7, 50, 15, None, 0, 350, 300, 40, 70, 280],
+        [None, "Client Total"] + blank[2:],
+        [None, "Grand Total"] + blank[2:],
+    ]
+    buf = io.BytesIO()
+    pd.DataFrame(rows).to_excel(buf, header=False, index=False)
+    return buf.getvalue()
+
+
+def test_arihant_back_office_report():
+    res = parse_holdings_file(_arihant_xlsx(), "ClientBeneficiaryHolding.xlsx")
+    assert res.detected_format == "Arihant"
+    h = by_symbol(res)
+    assert set(h) == {"RELIANCE", "INFY", "NEWLISTCO"}  # total rows skipped
+    # Quantity must come from "Total Holding", not "Holding" (free shares, 0 here).
+    assert h["RELIANCE"].quantity == 3 and h["RELIANCE"].avg_price == 1100
+    assert h["INFY"].quantity == 10 and h["INFY"].avg_price == 1400.5
+    # A symbol not in our list is kept: Yahoo is asked for its prices and sector later.
+    assert h["NEWLISTCO"].quantity == 7
+    assert not res.warnings
+
+
+def test_isin_beats_a_misleading_name(monkeypatch):
+    from app.services import csv_parser, stocks_meta
+
+    monkeypatch.setattr(stocks_meta, "symbol_from_isin", lambda isin: {"INE009A01021": "INFY"}.get(isin))
+    csv = "ISIN,Security Name,Total Holding,Buy Avg\nINE009A01021,INFOSYS LTD (OLD NAME),4,1500\n".encode()
+    res = csv_parser.parse_holdings_file(csv, "h.csv")
+    assert by_symbol(res)["INFY"].quantity == 4
+
+
+def test_name_with_spaces_is_not_guessed_as_symbol():
+    csv = "Security Name,Total Holding,Buy Avg\nSOME UNKNOWN COMPANY LTD,4,100\nINFY,2,1500\n".encode()
+    res = parse_holdings_file(csv, "h.csv")
+    assert set(by_symbol(res)) == {"INFY"}
+    assert "SOME UNKNOWN COMPANY LTD" in res.warnings[0]
